@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Shield, Skull, Sparkles, Swords, Trophy, ArrowLeft, HelpCircle } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
+import { useBackHandler } from '../native/backButton';
 import { getCardById, getCardImageUrl } from '../data/cards';
 import { chooseAiAction } from '../engine/ai';
 import {
@@ -91,15 +92,53 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
   const [match, setMatch] = useState<MatchState>(initMatch);
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [hoverCell, setHoverCell] = useState<[number, number] | null>(null);
+  const [touchPreviewCell, setTouchPreviewCell] = useState<[number, number] | null>(null);
   const [showRulesModal, setShowRulesModal] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [outcomeRecorded, setOutcomeRecorded] = useState(false);
   const [lostCardId, setLostCardId] = useState<number | undefined>(undefined);
   const [claimedThisMatch, setClaimedThisMatch] = useState<number[]>([]);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const lastPointerTypeRef = useRef<string | null>(null);
 
   useEffect(() => {
     soundEngine.playCoinToss();
   }, []);
+
+  useEffect(() => {
+    setTouchPreviewCell(null);
+    setHoverCell(null);
+  }, [selectedUid, match.turnNumber, match.activeTurn, match.status]);
+
+  const handleRequestLeave = () => {
+    if (match.status === 'playing') {
+      setShowLeaveConfirm(true);
+    } else {
+      onBackToTavern();
+    }
+  };
+
+  useBackHandler(() => {
+    if (showRulesModal) {
+      setShowRulesModal(false);
+      return true;
+    }
+    if (showLeaveConfirm) {
+      setShowLeaveConfirm(false);
+      return true;
+    }
+    if (touchPreviewCell) {
+      setTouchPreviewCell(null);
+      setHoverCell(null);
+      return true;
+    }
+    if (match.status === 'playing') {
+      setShowLeaveConfirm(true);
+      return true;
+    }
+    onBackToTavern();
+    return true;
+  }, 20);
 
   // Auto-select first playable card on player's turn
   useEffect(() => {
@@ -205,13 +244,15 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
     selectedCard.category !== 'Monster' &&
     selectedCard.placementType === 'permanent';
 
+  const activePreviewCell = touchPreviewCell ?? hoverCell;
+
   const preview = useMemo(() => {
     if (
       match.status !== 'playing' ||
       match.activeTurn !== 'player' ||
       !selectedCard ||
       isSelectedPermanent ||
-      !hoverCell
+      !activePreviewCell
     ) {
       return null;
     }
@@ -219,12 +260,12 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
       match,
       'player',
       selectedCard.id,
-      hoverCell[0],
-      hoverCell[1]
+      activePreviewCell[0],
+      activePreviewCell[1]
     );
-  }, [match, selectedCard, isSelectedPermanent, hoverCell]);
+  }, [match, selectedCard, isSelectedPermanent, activePreviewCell]);
 
-  const handleBoardCellClick = (r: number, c: number) => {
+  const executeBoardPlacement = (r: number, c: number) => {
     if (match.status !== 'playing' || match.activeTurn !== 'player') return;
     if (!selectedCardInst || isSelectedPermanent) return;
     if (match.board[r][c].owner !== 'neutral') return;
@@ -236,7 +277,41 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
     });
     triggerMoveSfx(match, next);
     setHoverCell(null);
+    setTouchPreviewCell(null);
     setMatch(next);
+  };
+
+  const handleBoardCellClick = (r: number, c: number, clickDetail = 1) => {
+    if (match.status !== 'playing' || match.activeTurn !== 'player') return;
+    if (!selectedCardInst || isSelectedPermanent) return;
+    if (match.board[r][c].owner !== 'neutral') {
+      if (touchPreviewCell) setTouchPreviewCell(null);
+      return;
+    }
+
+    const pointerType = lastPointerTypeRef.current;
+    lastPointerTypeRef.current = null;
+    const isCoarseDevice =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const useTouchPreview =
+      pointerType === 'touch' ||
+      (pointerType !== 'mouse' && clickDetail > 0 && isCoarseDevice);
+
+    if (useTouchPreview) {
+      const isSamePreview =
+        touchPreviewCell !== null &&
+        touchPreviewCell[0] === r &&
+        touchPreviewCell[1] === c;
+      if (!isSamePreview) {
+        soundEngine.playHover();
+        setTouchPreviewCell([r, c]);
+        return;
+      }
+    }
+
+    executeBoardPlacement(r, c);
   };
 
   const handleActivatePermanent = () => {
@@ -259,6 +334,7 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
     setLostCardId(undefined);
     setClaimedThisMatch([]);
     setHoverCell(null);
+    setTouchPreviewCell(null);
     setMatch(initMatch());
   };
 
@@ -306,8 +382,44 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
   return (
     <div className="bnd-match">
       {/* Top Duelist & Score Bar */}
+      {showLeaveConfirm && (
+        <div
+          className="bnd-modal-backdrop"
+          onClick={() => setShowLeaveConfirm(false)}
+        >
+          <div
+            className="bnd-modal bnd-modal--sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>Leave Match?</h2>
+            <p className="bnd-modal-copy">
+              Abandoning this match against <strong>{opponent.name}</strong> will discard current board progress without rewards.
+            </p>
+            <div className="bnd-modal__footer">
+              <button
+                type="button"
+                className="bnd-btn bnd-btn--ghost"
+                onClick={() => setShowLeaveConfirm(false)}
+              >
+                Stay at Table
+              </button>
+              <button
+                type="button"
+                className="bnd-btn bnd-btn--gold"
+                onClick={() => {
+                  setShowLeaveConfirm(false);
+                  onBackToTavern();
+                }}
+              >
+                Leave Table
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bnd-match__topbar">
-        <button type="button" className="bnd-btn bnd-btn--ghost" onClick={onBackToTavern}>
+        <button type="button" className="bnd-btn bnd-btn--ghost" onClick={handleRequestLeave}>
           <ArrowLeft size={16} /> Leave Table
         </button>
 
@@ -494,6 +606,10 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
                   !(cell.medal.owner === 'opponent' && cell.medal.hiddenFromOpponent);
                 const medalCard = showMedal && cell.medal ? getCardById(cell.medal.cardId) : null;
 
+                const isTouchPreview =
+                  touchPreviewCell !== null &&
+                  touchPreviewCell[0] === r &&
+                  touchPreviewCell[1] === c;
                 return (
                   <button
                     key={key}
@@ -504,19 +620,24 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
                       cell.fortified ? 'is-fortified' : '',
                       cell.poisonTurns > 0 ? 'is-poisoned' : '',
                       canPlaceHere ? 'is-targetable' : '',
+                      isTouchPreview ? 'is-touch-preview' : '',
                       prevTag ? prevTag.cls : '',
                       lastKind ? `anim-${lastKind}` : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
+                    onPointerDown={(e) => {
+                      lastPointerTypeRef.current = e.pointerType;
+                    }}
                     onMouseEnter={() => {
+                      if (lastPointerTypeRef.current === 'touch') return;
                       if (canPlaceHere) {
                         soundEngine.playHover();
                         setHoverCell([r, c]);
                       }
                     }}
                     onMouseLeave={() => setHoverCell(null)}
-                    onClick={() => handleBoardCellClick(r, c)}
+                    onClick={(e) => handleBoardCellClick(r, c, e.detail)}
                     title={
                       medalCard
                         ? `Medal: #${medalCard.code} ${medalCard.name}${cell.medal?.hiddenFromOpponent ? ' (Hidden from Opponent)' : ''}`
@@ -579,13 +700,36 @@ export const MatchScreen: React.FC<MatchScreenProps> = ({
                 <strong>Activate {selectedCard.name}</strong> on the left panel!
               </span>
             ) : preview ? (
-              <span>
-                Previewing <strong>{selectedCard?.name}</strong>: +{1 + preview.claimedCells.length + preview.flankedCells.length} Claimed/Flanked
-                {preview.neutralizedCells.length > 0 && ` • ${preview.neutralizedCells.length} Neutralized`}
-                {preview.shieldBreakCells.length > 0 && ` • ${preview.shieldBreakCells.length} Ward Broken`}
-              </span>
+              <div className="bnd-board-preview-bar">
+                <span>
+                  Previewing <strong>{selectedCard?.name}</strong>: +{1 + preview.claimedCells.length + preview.flankedCells.length} Claimed/Flanked
+                  {preview.neutralizedCells.length > 0 && ` • ${preview.neutralizedCells.length} Neutralized`}
+                  {preview.shieldBreakCells.length > 0 && ` • ${preview.shieldBreakCells.length} Ward Broken`}
+                </span>
+                {touchPreviewCell && (
+                  <span className="bnd-board-preview-actions">
+                    <button
+                      type="button"
+                      className="bnd-btn bnd-btn--gold bnd-btn--sm"
+                      onClick={() => executeBoardPlacement(touchPreviewCell[0], touchPreviewCell[1])}
+                    >
+                      Confirm Place
+                    </button>
+                    <button
+                      type="button"
+                      className="bnd-btn bnd-btn--ghost bnd-btn--sm"
+                      onClick={() => {
+                        setTouchPreviewCell(null);
+                        setHoverCell(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                )}
+              </div>
             ) : (
-              <span>Select a card below and hover any empty Neutral square to preview placement.</span>
+              <span>Select a card below and hover or tap any empty Neutral square to preview placement.</span>
             )}
           </div>
         </section>

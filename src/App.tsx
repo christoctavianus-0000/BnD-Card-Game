@@ -14,6 +14,7 @@ import { CardBinder } from './components/CardBinder';
 import { DeckBuilder } from './components/DeckBuilder';
 import { MatchScreen } from './components/MatchScreen';
 import { OpponentSelect } from './components/OpponentSelect';
+import { useBackHandler } from './native/backButton';
 import {
   applyMatchOutcomeToProfile,
   createDefaultProfile,
@@ -37,6 +38,21 @@ export const App: React.FC = () => {
   } | null>(null);
   const [muted, setMuted] = useState<boolean>(() => soundEngine.isMuted());
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  useBackHandler(() => {
+    if (showResetConfirm) {
+      setShowResetConfirm(false);
+      return true;
+    }
+    if (activeChallenge) {
+      return false;
+    }
+    if (activeTab !== 'tavern') {
+      setActiveTab('tavern');
+      return true;
+    }
+    return false;
+  }, 10);
 
   useEffect(() => {
     saveProfile(profile);

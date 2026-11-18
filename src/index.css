@@ -42,6 +42,15 @@ body {
   font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+button,
+a,
+[role='button'] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button,
@@ -68,8 +77,13 @@ input {
 /* ================= APP SHELL & HEADER ================= */
 .bnd-app {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  padding-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  padding-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  padding-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
 }
 
 .bnd-header {
@@ -377,9 +391,11 @@ input {
   transition: all 0.14s ease;
 }
 
-.bnd-pill-btn:hover {
-  color: var(--text-main);
-  border-color: rgba(212, 168, 83, 0.5);
+@media (hover: hover) {
+  .bnd-pill-btn:hover {
+    color: var(--text-main);
+    border-color: rgba(212, 168, 83, 0.5);
+  }
 }
 
 .bnd-pill-btn.is-on {
@@ -461,9 +477,11 @@ input {
   overflow: hidden;
 }
 
-.bnd-card:hover:not(.is-locked) {
-  transform: translateY(-5px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.65), 0 0 14px rgba(245, 208, 118, 0.28);
+@media (hover: hover) {
+  .bnd-card:hover:not(.is-locked) {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.65), 0 0 14px rgba(245, 208, 118, 0.28);
+  }
 }
 
 .bnd-card.is-selected {
@@ -855,9 +873,11 @@ input {
   transition: all 0.15s ease;
 }
 
-.bnd-npc-row:hover {
-  border-color: rgba(212, 168, 83, 0.55);
-  background: var(--bg-surface-elevated);
+@media (hover: hover) {
+  .bnd-npc-row:hover {
+    border-color: rgba(212, 168, 83, 0.55);
+    background: var(--bg-surface-elevated);
+  }
 }
 
 .bnd-npc-row.is-selected {
@@ -1020,8 +1040,10 @@ input {
   transition: all 0.14s ease;
 }
 
-.bnd-rule-card:hover:not(:disabled) {
-  border-color: rgba(212, 168, 83, 0.55);
+@media (hover: hover) {
+  .bnd-rule-card:hover:not(:disabled) {
+    border-color: rgba(212, 168, 83, 0.55);
+  }
 }
 
 .bnd-rule-card.is-active {
@@ -1431,9 +1453,16 @@ input {
   cursor: pointer;
 }
 
-.bnd-cell.is-targetable:hover {
-  border-color: var(--gold-bright);
-  transform: scale(1.03);
+@media (hover: hover) {
+  .bnd-cell.is-targetable:hover {
+    border-color: var(--gold-bright);
+    transform: scale(1.03);
+  }
+}
+
+.bnd-cell.is-touch-preview {
+  transform: scale(1.04);
+  z-index: 2;
 }
 
 .bnd-cell.is-fortified {
@@ -1623,6 +1652,19 @@ input {
   min-height: 20px;
 }
 
+.bnd-board-preview-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.bnd-board-preview-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Match Chronicle Log */
 .bnd-log-list {
   flex: 1;
@@ -1710,6 +1752,10 @@ input {
 
 .bnd-outcome-modal {
   max-width: 820px;
+}
+
+.bnd-modal--sm {
+  max-width: 440px;
 }
 
 .bnd-modal h2 {
@@ -2208,10 +2254,68 @@ input {
 }
 
 @media (max-width: 640px) {
+  .bnd-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .bnd-nav {
+    width: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+  .bnd-nav__tab {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 12px;
+    min-height: 40px;
+  }
+  .bnd-main {
+    padding: 12px 10px 20px;
+  }
+  .bnd-match__topbar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .bnd-scoreboard {
+    width: 100%;
+    gap: 8px;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .bnd-score-side {
+    padding: 5px 9px;
+    gap: 6px;
+  }
+  .bnd-score-side__num {
+    font-size: 20px;
+  }
+  .bnd-score-center {
+    min-width: 90px;
+    flex: 1;
+  }
+  .bnd-board-wrap {
+    padding: 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
   .bnd-board {
-    grid-template-columns: repeat(5, 58px);
-    grid-template-rows: repeat(5, 58px);
-    gap: 5px;
+    --bnd-cell-size: clamp(50px, calc((100vw - 88px) / 5), 68px);
+    grid-template-columns: repeat(5, var(--bnd-cell-size));
+    grid-template-rows: repeat(5, var(--bnd-cell-size));
+    gap: 4px;
+    padding: 7px;
+  }
+  .bnd-player-tray {
+    padding: 10px 12px;
+  }
+  .bnd-hand-row {
+    gap: 8px;
+  }
+  .bnd-modal {
+    padding: 16px;
+    max-height: 86dvh;
   }
   .bnd-deck-slots,
   .bnd-rules-grid,

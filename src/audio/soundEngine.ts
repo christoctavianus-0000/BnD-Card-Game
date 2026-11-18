@@ -45,6 +45,18 @@ class SoundEngine {
     return this.muted;
   }
 
+  public suspend(): void {
+    if (this.ctx && this.ctx.state === 'running') {
+      void this.ctx.suspend().catch(() => {});
+    }
+  }
+
+  public resume(): void {
+    if (!this.muted && this.ctx && this.ctx.state === 'suspended') {
+      void this.ctx.resume().catch(() => {});
+    }
+  }
+
   private playTone(
     freq: number,
     duration: number,
