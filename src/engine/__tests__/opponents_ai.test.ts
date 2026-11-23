@@ -77,4 +77,29 @@ describe('NPC Opponents & AI Full-Match Simulation', () => {
       expect(['player_win', 'opponent_win', 'draw']).toContain(state.status);
     }
   });
+
+  it('never peeks at the player hidden hand during Rank S minimax search', () => {
+    const fixedRng = () => 0.5;
+    let stateA = createMatch({
+      playerDeck: [1, 1, 1, 100, 101, 104],
+      opponentDeck: NPC_OPPONENTS[20].deckFirst,
+      firstPlayer: 'player',
+      rng: fixedRng,
+    });
+    let stateB = createMatch({
+      playerDeck: [1, 41, 41, 71, 88, 97],
+      opponentDeck: NPC_OPPONENTS[20].deckFirst,
+      firstPlayer: 'player',
+      rng: fixedRng,
+    });
+
+    // Both matches make the exact same public opening move (#001 Goblin at (2,2))
+    stateA = playCard(stateA, { cardUid: stateA.hands.player[0].uid, targetRow: 2, targetCol: 2, rng: fixedRng });
+    stateB = playCard(stateB, { cardUid: stateB.hands.player[0].uid, targetRow: 2, targetCol: 2, rng: fixedRng });
+
+    const moveA = chooseAiAction(stateA, 'S', fixedRng);
+    const moveB = chooseAiAction(stateB, 'S', fixedRng);
+
+    expect(moveA).toEqual(moveB);
+  });
 });

@@ -147,4 +147,89 @@ describe('B\'n\'D Core Engine & Special Mechanics', () => {
     state = passTurn(state, fixedRng);
     expect(state.hands.opponent).toHaveLength(5);
   });
+
+  it('keeps freshly applied Poison at 3 turns for Ranger and Spiritmaster, ticking down over 3 full turns', () => {
+    let state = createMatch({
+      playerDeck: [41, 41, 77, 41, 41, 41],
+      opponentDeck: [41, 41, 41, 41, 41, 41],
+      firstPlayer: 'player',
+      rng: fixedRng,
+    });
+
+    // Player at (4, 0)
+    state = playCard(state, { cardUid: state.hands.player[0].uid, targetRow: 4, targetCol: 0, rng: fixedRng });
+    // Opponent at (4, 1)
+    state = playCard(state, { cardUid: state.hands.opponent[0].uid, targetRow: 4, targetCol: 1, rng: fixedRng });
+    // Player passes (discards index 0 = 41), leaving #077 Ranger at index 0
+    state = passTurn(state, fixedRng);
+    state = playCard(state, { cardUid: state.hands.opponent[0].uid, targetRow: 4, targetCol: 3, rng: fixedRng });
+
+    // Player places #077 Ranger at (4, 2) -> flanks (4, 1) and poisons both (4, 1) and (4, 3)
+    state = playCard(state, { cardUid: state.hands.player[0].uid, targetRow: 4, targetCol: 2, rng: fixedRng });
+    expect(state.board[4][1].poisonTurns).toBe(3);
+    expect(state.board[4][3].poisonTurns).toBe(3);
+
+    // Ticks down 3 -> 2 -> 1 -> 0 over the next 3 turns
+    state = playCard(state, { cardUid: state.hands.opponent[0].uid, targetRow: 0, targetCol: 0, rng: fixedRng });
+    expect(state.board[4][1].poisonTurns).toBe(2);
+    expect(state.board[4][3].poisonTurns).toBe(2);
+
+    state = playCard(state, { cardUid: state.hands.player[0].uid, targetRow: 0, targetCol: 1, rng: fixedRng });
+    expect(state.board[4][1].poisonTurns).toBe(1);
+    expect(state.board[4][3].poisonTurns).toBe(1);
+
+    state = playCard(state, { cardUid: state.hands.opponent[0].uid, targetRow: 0, targetCol: 2, rng: fixedRng });
+    expect(state.board[4][1].poisonTurns).toBe(0);
+    expect(state.board[4][1].owner).toBe('neutral');
+    expect(state.board[4][3].owner).toBe('neutral');
+
+    // Also test #078 Spiritmaster converting Fortified enemy square into 3-turn Poison
+    let spiritState = createMatch({
+      playerDeck: [41, 41, 78, 41, 41, 41],
+      opponentDeck: [41, 72, 41, 41, 41, 41],
+      firstPlayer: 'player',
+      rng: fixedRng,
+    });
+    spiritState = playCard(spiritState, { cardUid: spiritState.hands.player[0].uid, targetRow: 4, targetCol: 4, rng: fixedRng });
+    spiritState = playCard(spiritState, { cardUid: spiritState.hands.opponent[0].uid, targetRow: 0, targetCol: 2, rng: fixedRng });
+    spiritState = playCard(spiritState, { cardUid: spiritState.hands.player[0].uid, targetRow: 4, targetCol: 3, rng: fixedRng });
+    // Opponent places #072 Vanguard at (0, 1) -> fortifies (0, 2)
+    spiritState = playCard(spiritState, { cardUid: spiritState.hands.opponent[0].uid, targetRow: 0, targetCol: 1, rng: fixedRng });
+    expect(spiritState.board[0][2].fortified).toBe(true);
+
+    // Player plays #078 Spiritmaster at (2, 2) -> converts fortified (0, 2) to 3-turn Poison without same-turn tick!
+    spiritState = playCard(spiritState, { cardUid: spiritState.hands.player[0].uid, targetRow: 2, targetCol: 2, rng: fixedRng });
+    expect(spiritState.board[0][2].fortified).toBe(false);
+    expect(spiritState.board[0][2].poisonTurns).toBe(3);
+  });
+
+  it('logs Lady Emma end-of-turn outcomes accurately under Salve-Maker and Selene', () => {
+    // Under #086 Salve-Maker, Lady Emma should log blocked rather than poisoned
+    let blockedState = createMatch({
+      playerDeck: [86, 79, 41, 41, 41, 41],
+      opponentDeck: [41, 41, 41, 41, 41, 41],
+      firstPlayer: 'player',
+      rng: fixedRng,
+    });
+    blockedState = playCard(blockedState, { cardUid: blockedState.hands.player[0].uid, targetRow: 4, targetCol: 4, rng: fixedRng });
+    blockedState = playCard(blockedState, { cardUid: blockedState.hands.opponent[0].uid, targetRow: 0, targetCol: 0, rng: fixedRng });
+    blockedState = playCard(blockedState, { cardUid: blockedState.hands.player[0].uid, targetRow: 3, targetCol: 4, rng: fixedRng });
+    const blockedLog = blockedState.log[blockedState.log.length - 1]?.message ?? '';
+    expect(blockedLog).toContain('Salve-Maker blocks Poison');
+    expect(blockedLog).not.toContain('poisons square');
+
+    // Under #075 Selene, Lady Emma should log Fortify conversion rather than poisoned
+    let fortifyState = createMatch({
+      playerDeck: [75, 79, 41, 41, 41, 41],
+      opponentDeck: [41, 41, 41, 41, 41, 41],
+      firstPlayer: 'player',
+      rng: fixedRng,
+    });
+    fortifyState = playCard(fortifyState, { cardUid: fortifyState.hands.player[0].uid, rng: fixedRng });
+    fortifyState = playCard(fortifyState, { cardUid: fortifyState.hands.opponent[0].uid, targetRow: 0, targetCol: 0, rng: fixedRng });
+    fortifyState = playCard(fortifyState, { cardUid: fortifyState.hands.player[0].uid, targetRow: 4, targetCol: 4, rng: fixedRng });
+    const fortifyLog = fortifyState.log[fortifyState.log.length - 1]?.message ?? '';
+    expect(fortifyLog).toContain('Selene turns Poison into Fortify');
+    expect(fortifyLog).not.toContain('poisons square');
+  });
 });

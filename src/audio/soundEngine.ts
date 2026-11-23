@@ -173,10 +173,6 @@ class SoundEngine {
     this.playTone(1975.5, 0.45, 'sine', 0.18, 0.04);
   }
 
-  public playRouletteTick(): void {
-    this.playTone(760, 0.04, 'triangle', 0.16, 0, 480);
-  }
-
   public playVictory(): void {
     const fanfare = [
       { f: 523.25, d: 0.13, t: 0.0 },

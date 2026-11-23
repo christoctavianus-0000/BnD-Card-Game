@@ -4,10 +4,81 @@ import { getRankForCumulativePoints } from '../engine/rules';
 import type { OpponentRank, PlayerProfile, SavedDeck } from '../types/bnd';
 
 const STORAGE_KEY = 'bnd_bravely_default_2_profile_v1';
+const VALID_CARD_IDS = new Set<number>(ALL_CARDS.map((c) => c.id));
 
 export interface ExtendedPlayerProfile extends PlayerProfile {
   cumulativePoints: number;
   lostCards: number[];
+}
+
+export function getTotalOwnedCardCount(
+  profile: Pick<ExtendedPlayerProfile, 'ownedCounts'>
+): number {
+  let total = 0;
+  for (const [rawId, count] of Object.entries(profile.ownedCounts)) {
+    const id = Number(rawId);
+    if (!VALID_CARD_IDS.has(id)) continue;
+    if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+      total += Math.floor(count);
+    }
+  }
+  return total;
+}
+
+export function canForfeitCardOnKeepsies(profile: ExtendedPlayerProfile): boolean {
+  if (profile.sandboxUnlockAll) return false;
+  return getTotalOwnedCardCount(profile) > 6;
+}
+
+function repairDeckCards(
+  rawCards: readonly unknown[],
+  ownedCounts: Record<number, number>
+): number[] {
+  const kept: (number | null)[] = new Array(6).fill(null);
+  const usedCounts: Record<number, number> = {};
+
+  for (let i = 0; i < 6; i++) {
+    const rawId = rawCards[i];
+    const id =
+      typeof rawId === 'number' && Number.isInteger(rawId) && VALID_CARD_IDS.has(rawId)
+        ? rawId
+        : null;
+    if (id !== null && (usedCounts[id] ?? 0) < (ownedCounts[id] ?? 0)) {
+      kept[i] = id;
+      usedCounts[id] = (usedCounts[id] ?? 0) + 1;
+    }
+  }
+
+  const sortedOwnedIds = Object.keys(ownedCounts)
+    .map(Number)
+    .filter((id) => VALID_CARD_IDS.has(id) && (ownedCounts[id] ?? 0) > 0)
+    .sort((a, b) => a - b);
+
+  for (let i = 0; i < 6; i++) {
+    if (kept[i] !== null) continue;
+    const replacement = sortedOwnedIds.find(
+      (id) => (usedCounts[id] ?? 0) < (ownedCounts[id] ?? 0)
+    );
+    if (replacement !== undefined) {
+      kept[i] = replacement;
+      usedCounts[replacement] = (usedCounts[replacement] ?? 0) + 1;
+    } else {
+      kept[i] = STARTER_DECK_IDS[i] ?? 1;
+    }
+  }
+
+  return kept as number[];
+}
+
+function sanitizeCardIdList(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  for (const item of raw) {
+    if (typeof item === 'number' && Number.isInteger(item) && VALID_CARD_IDS.has(item)) {
+      seen.add(item);
+    }
+  }
+  return [...seen];
 }
 
 export function createDefaultProfile(): ExtendedPlayerProfile {
@@ -64,17 +135,124 @@ export function loadProfile(): ExtendedPlayerProfile {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return createDefaultProfile();
-    const parsed = JSON.parse(raw) as Partial<ExtendedPlayerProfile>;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return createDefaultProfile();
+    }
+
+    const record = parsed as Record<string, unknown>;
     const fallback = createDefaultProfile();
+
+    const sanitizedOwned: Record<number, number> = {};
+    if (
+      record.ownedCounts &&
+      typeof record.ownedCounts === 'object' &&
+      !Array.isArray(record.ownedCounts)
+    ) {
+      for (const [k, v] of Object.entries(record.ownedCounts as Record<string, unknown>)) {
+        const id = Number(k);
+        if (
+          Number.isInteger(id) &&
+          VALID_CARD_IDS.has(id) &&
+          typeof v === 'number' &&
+          Number.isFinite(v) &&
+          v >= 0
+        ) {
+          sanitizedOwned[id] = Math.floor(v);
+        }
+      }
+    }
+
+    const ownedCounts =
+      getTotalOwnedCardCount({ ownedCounts: sanitizedOwned }) >= 6
+        ? sanitizedOwned
+        : fallback.ownedCounts;
+
+    const everSet = new Set<number>([
+      ...INITIAL_UNLOCKED_CARD_IDS,
+      ...sanitizeCardIdList(record.everCollected),
+    ]);
+    for (const [rawId, cnt] of Object.entries(ownedCounts)) {
+      if (cnt > 0) everSet.add(Number(rawId));
+    }
+    const everCollected = [...everSet].sort((a, b) => a - b);
+
+    const lostCards = sanitizeCardIdList(record.lostCards).filter(
+      (id) => (ownedCounts[id] ?? 0) === 0
+    );
+
+    const rawDecks = Array.isArray(record.decks) ? record.decks : [];
+    const seenDeckIds = new Set<string>();
+    const sanitizedDecks: SavedDeck[] = [];
+    for (let i = 0; i < rawDecks.length; i++) {
+      const item = rawDecks[i];
+      if (!item || typeof item !== 'object') continue;
+      const d = item as Record<string, unknown>;
+      const rawId = typeof d.id === 'string' && d.id.trim() ? d.id.trim() : `deck_${i + 1}`;
+      const id = seenDeckIds.has(rawId) ? `deck_${i + 1}` : rawId;
+      seenDeckIds.add(id);
+      const name =
+        typeof d.name === 'string' && d.name.trim()
+          ? d.name.trim().slice(0, 24)
+          : `Custom Deck ${i + 1}`;
+      const cards = repairDeckCards(Array.isArray(d.cards) ? d.cards : [], ownedCounts);
+      sanitizedDecks.push({ id, name, cards });
+    }
+    const decks = sanitizedDecks.length > 0 ? sanitizedDecks : fallback.decks;
+
+    const activeDeckId =
+      typeof record.activeDeckId === 'string' && decks.some((d) => d.id === record.activeDeckId)
+        ? record.activeDeckId
+        : decks[0].id;
+
+    const points =
+      typeof record.points === 'number' && Number.isFinite(record.points) && record.points >= 0
+        ? Math.floor(record.points)
+        : fallback.points;
+
+    const cumulativePoints =
+      typeof record.cumulativePoints === 'number' &&
+      Number.isFinite(record.cumulativePoints) &&
+      record.cumulativePoints >= 0
+        ? Math.floor(record.cumulativePoints)
+        : fallback.cumulativePoints;
+
+    const npcWins: Record<string, number> = {};
+    if (
+      record.npcWins &&
+      typeof record.npcWins === 'object' &&
+      !Array.isArray(record.npcWins)
+    ) {
+      for (const [k, v] of Object.entries(record.npcWins as Record<string, unknown>)) {
+        if (typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+          npcWins[k] = Math.floor(v);
+        }
+      }
+    }
+
+    const npcClaimedCards: Record<string, number[]> = {};
+    if (
+      record.npcClaimedCards &&
+      typeof record.npcClaimedCards === 'object' &&
+      !Array.isArray(record.npcClaimedCards)
+    ) {
+      for (const [k, v] of Object.entries(record.npcClaimedCards as Record<string, unknown>)) {
+        npcClaimedCards[k] = sanitizeCardIdList(v);
+      }
+    }
+
     return {
-      ...fallback,
-      ...parsed,
-      ownedCounts: { ...fallback.ownedCounts, ...(parsed.ownedCounts ?? {}) },
-      everCollected: Array.isArray(parsed.everCollected)
-        ? parsed.everCollected
-        : fallback.everCollected,
-      lostCards: Array.isArray(parsed.lostCards) ? parsed.lostCards : [],
-      decks: Array.isArray(parsed.decks) && parsed.decks.length > 0 ? parsed.decks : fallback.decks,
+      points,
+      cumulativePoints,
+      rank: getRankForCumulativePoints(cumulativePoints),
+      ownedCounts,
+      everCollected,
+      lostCards,
+      sandboxUnlockAll: Boolean(record.sandboxUnlockAll),
+      decks,
+      activeDeckId,
+      npcWins,
+      npcClaimedCards,
     };
   } catch {
     return createDefaultProfile();
@@ -177,7 +355,7 @@ export function applyMatchOutcomeToProfile(
   let lostCards = [...prev.lostCards];
   let decks = prev.decks.map((d) => ({ ...d, cards: [...d.cards] }));
 
-  if (params.lostCardId !== undefined && !prev.sandboxUnlockAll) {
+  if (params.lostCardId !== undefined && canForfeitCardOnKeepsies(prev)) {
     const cid = params.lostCardId;
     const cur = ownedCounts[cid] ?? 0;
     if (cur > 0) {
@@ -185,23 +363,11 @@ export function applyMatchOutcomeToProfile(
       if (ownedCounts[cid] === 0 && !lostCards.includes(cid)) {
         lostCards = [...lostCards, cid];
       }
-      // Ensure saved decks don't reference more copies of cid than now owned
-      const remaining = ownedCounts[cid];
-      decks = decks.map((deck) => {
-        let used = 0;
-        const nextCards = deck.cards.map((id) => {
-          if (id !== cid) return id;
-          used += 1;
-          if (used <= remaining) return id;
-          // Substitute with any available owned card so deck stays at 6 cards
-          const fallbackId =
-            Object.entries(ownedCounts)
-              .map(([k, cnt]) => ({ id: Number(k), cnt }))
-              .find((entry) => entry.cnt > deck.cards.filter((x) => x === entry.id).length)?.id ?? 1;
-          return fallbackId;
-        });
-        return { ...deck, cards: nextCards };
-      });
+      // Ensure every saved deck stays valid with 6 owned cards and no phantom duplicates
+      decks = decks.map((deck) => ({
+        ...deck,
+        cards: repairDeckCards(deck.cards, ownedCounts),
+      }));
     }
   }
 

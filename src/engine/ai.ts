@@ -17,11 +17,13 @@ export interface AiChosenAction {
 }
 
 const deterministicRng = () => 0.5;
+const PUBLIC_PROBE_CARDS = [4, 8, 25, 17] as const;
 
 /**
- * Masks hidden medals belonging to the enemy so the AI never cheats by peeking at secret Counters!
+ * Masks hidden enemy medals AND replaces the enemy's private hand/deck with
+ * deterministic public threat probes so the AI never peeks at unrevealed cards.
  */
-function maskHiddenEnemyMedals(state: MatchState, aiSide: PlayerSide): MatchState {
+function createAiPerceivedState(state: MatchState, aiSide: PlayerSide): MatchState {
   const masked = cloneMatchState(state);
   const humanSide = otherSide(aiSide);
   for (let r = 0; r < 5; r++) {
@@ -32,6 +34,11 @@ function maskHiddenEnemyMedals(state: MatchState, aiSide: PlayerSide): MatchStat
       }
     }
   }
+  masked.hands[humanSide] = state.hands[humanSide].map((_, idx) => ({
+    uid: `probe_${humanSide}_${idx}`,
+    cardId: PUBLIC_PROBE_CARDS[idx % PUBLIC_PROBE_CARDS.length],
+  }));
+  masked.initialDecks[humanSide] = [...PUBLIC_PROBE_CARDS];
   return masked;
 }
 
@@ -191,7 +198,7 @@ export function chooseAiAction(
     return { type: 'pass' };
   }
 
-  const perceivedState = maskHiddenEnemyMedals(realState, aiSide);
+  const perceivedState = createAiPerceivedState(realState, aiSide);
   const candidates = enumerateLegalCandidates(perceivedState, aiSide);
   if (candidates.length === 0) {
     return { type: 'pass' };

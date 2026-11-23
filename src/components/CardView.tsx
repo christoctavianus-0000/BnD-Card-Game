@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Info } from 'lucide-react';
 import { getCardImageUrl } from '../data/cards/cardImages';
 import type { BndCard, FootprintPattern, FootprintState, MonsterTribe } from '../types/bnd';
 
@@ -93,6 +94,10 @@ export interface CardViewProps {
   ownedCount?: number;
   isLost?: boolean;
   compact?: boolean;
+  variant?: 'default' | 'compact' | 'battle-tile';
+  onInspect?: () => void;
+  onPointerDown?: React.PointerEventHandler<HTMLElement>;
+  isDragging?: boolean;
   onClick?: () => void;
 }
 
@@ -105,11 +110,21 @@ export const CardView: React.FC<CardViewProps> = ({
   ownedCount,
   isLost = false,
   compact = false,
+  variant,
+  onInspect,
+  onPointerDown,
+  isDragging = false,
   onClick,
 }) => {
   const palette = getCardPalette(card);
+  const resolvedVariant = variant ?? (compact ? 'compact' : 'default');
   const patternToRender =
     effectivePattern !== undefined ? effectivePattern : card[effectiveState];
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [card.id]);
 
   const subtitle =
     card.category === 'Monster'
@@ -127,15 +142,111 @@ export const CardView: React.FC<CardViewProps> = ({
       ? card.traitText ?? null
       : card.abilityText;
 
-  return (
+  if (resolvedVariant === 'battle-tile') {
+    return (
+      <div
+        className={[
+          'bnd-btile',
+          selected ? 'is-selected' : '',
+          lockedReason ? 'is-locked' : '',
+          isDragging ? 'is-dragging' : '',
+          effectiveState === 'reinforced' ? 'is-reinforced' : '',
+          effectiveState === 'weakened' ? 'is-weakened' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={
+          {
+            '--card-border': palette.border,
+            '--card-accent': palette.accent,
+          } as React.CSSProperties
+        }
+      >
+        <button
+          type="button"
+          className="bnd-btile__main"
+          onClick={onClick}
+          onPointerDown={onPointerDown}
+          title={
+            lockedReason ??
+            `#${card.code} ${card.name} (${subtitle})${desc ? ` — ${desc}` : ''}`
+          }
+        >
+          <div className="bnd-btile__art">
+            {imgError ? (
+              <div className="bnd-card__img-fallback is-tile" aria-hidden="true">
+                <span>✦</span>
+              </div>
+            ) : (
+              <img
+                src={getCardImageUrl(card.id)}
+                alt={`#${card.code} ${card.name}`}
+                draggable={false}
+                onError={() => setImgError(true)}
+              />
+            )}
+            {effectiveState === 'reinforced' && (
+              <span className="bnd-btile__state is-up" aria-label="Strengthened">
+                ▲
+              </span>
+            )}
+            {effectiveState === 'weakened' && (
+              <span className="bnd-btile__state is-down" aria-label="Weakened">
+                ▼
+              </span>
+            )}
+          </div>
+
+          <div className="bnd-btile__meta">
+            <div className="bnd-btile__top">
+              <FootprintMiniGrid
+                pattern={patternToRender}
+                state={effectiveState}
+                size="sm"
+              />
+            </div>
+            <div className="bnd-btile__label">
+              <span className="bnd-btile__code">#{card.code}</span>
+              <span className="bnd-btile__name">{card.name}</span>
+            </div>
+          </div>
+
+          {lockedReason && (
+            <div className="bnd-btile__lock" title={lockedReason}>
+              <span>🔒</span>
+            </div>
+          )}
+        </button>
+
+        {onInspect && (
+          <button
+            type="button"
+            className="bnd-btile__info"
+            aria-label={`Inspect ${card.name}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onInspect();
+            }}
+          >
+            <Info size={12} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const cardButton = (
     <button
       type="button"
       onClick={onClick}
+      onPointerDown={onPointerDown}
       className={[
         'bnd-card',
-        compact ? 'bnd-card--compact' : '',
+        resolvedVariant === 'compact' ? 'bnd-card--compact' : '',
         selected ? 'is-selected' : '',
         lockedReason ? 'is-locked' : '',
+        isDragging ? 'is-dragging' : '',
         effectiveState === 'reinforced' ? 'is-reinforced' : '',
         effectiveState === 'weakened' ? 'is-weakened' : '',
       ]
@@ -153,13 +264,21 @@ export const CardView: React.FC<CardViewProps> = ({
       }
     >
       <div className="bnd-card__visual">
-        <img
-          src={getCardImageUrl(card.id)}
-          alt={`#${card.code} ${card.name}`}
-          className="bnd-card__img"
-          loading="lazy"
-          draggable={false}
-        />
+        {imgError ? (
+          <div className="bnd-card__img-fallback" aria-label={`#${card.code} ${card.name}`}>
+            <span>✦</span>
+            <small>#{card.code}</small>
+          </div>
+        ) : (
+          <img
+            src={getCardImageUrl(card.id)}
+            alt={`#${card.code} ${card.name}`}
+            className="bnd-card__img"
+            loading="lazy"
+            draggable={false}
+            onError={() => setImgError(true)}
+          />
+        )}
 
         {/* Dynamic live 4x4 grid overlay ONLY when Strengthened or Weakened during a match */}
         {effectiveState !== 'normal' && patternToRender && (
@@ -198,8 +317,30 @@ export const CardView: React.FC<CardViewProps> = ({
           <span className="bnd-card__name">{card.name}</span>
         </div>
         <div className="bnd-card__subtitle">{subtitle}</div>
-        {!compact && desc && <div className="bnd-card__desc">{desc}</div>}
+        {resolvedVariant !== 'compact' && desc && <div className="bnd-card__desc">{desc}</div>}
       </div>
     </button>
+  );
+
+  if (!onInspect) {
+    return cardButton;
+  }
+
+  return (
+    <div className="bnd-card-wrap">
+      {cardButton}
+      <button
+        type="button"
+        className="bnd-card__info-btn"
+        aria-label={`Inspect ${card.name}`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onInspect();
+        }}
+      >
+        <Info size={13} />
+      </button>
+    </div>
   );
 };

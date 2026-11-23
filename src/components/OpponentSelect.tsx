@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Crown, Lock, RotateCcw, ShieldAlert, Sparkles, Swords, Trophy } from 'lucide-react';
+import {
+  ChevronRight,
+  Crown,
+  Lock,
+  RotateCcw,
+  ShieldAlert,
+  Sparkles,
+  Swords,
+  Trophy,
+} from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
 import { getCardById } from '../data/cards';
 import { NPC_OPPONENTS } from '../data/opponents';
@@ -10,12 +19,14 @@ import {
   RANK_MULTIPLIERS,
   RANK_THRESHOLDS,
 } from '../engine/rules';
+import { useViewportMode } from '../hooks/useViewportMode';
 import {
   getEffectiveRank,
   type ExtendedPlayerProfile,
 } from '../state/profileStore';
 import type { MatchRuleId, NpcOpponent, OpponentRank } from '../types/bnd';
 import { CardView } from './CardView';
+import { MobileSheet } from './MobileSheet';
 
 export interface OpponentSelectProps {
   profile: ExtendedPlayerProfile;
@@ -30,8 +41,10 @@ export const OpponentSelect: React.FC<OpponentSelectProps> = ({
   onSelectActiveDeck,
   onStartMatch,
 }) => {
+  const { isMobile } = useViewportMode();
   const [rankFilter, setRankFilter] = useState<'All' | OpponentRank>('All');
   const [selectedNpcId, setSelectedNpcId] = useState<string>(NPC_OPPONENTS[0].id);
+  const [showDossierSheet, setShowDossierSheet] = useState(false);
 
   const playerRank = getEffectiveRank(profile);
 
@@ -99,23 +112,158 @@ export const OpponentSelect: React.FC<OpponentSelectProps> = ({
     ? 100
     : Math.min(100, (profile.cumulativePoints / RANK_THRESHOLDS.S) * 100);
 
+  const renderChallengeCta = () =>
+    isNpcUnlocked ? (
+      <button
+        type="button"
+        className="bnd-btn bnd-btn--gold bnd-btn--lg bnd-btn--full"
+        onClick={() => {
+          soundEngine.playSelectCard();
+          setShowDossierSheet(false);
+          onStartMatch(selectedNpc, selectedRules);
+        }}
+      >
+        <Swords size={18} /> Challenge {selectedNpc.name} ({activeDeck.name})
+      </button>
+    ) : (
+      <button
+        type="button"
+        className="bnd-btn bnd-btn--ghost bnd-btn--lg bnd-btn--full"
+        disabled
+      >
+        <Lock size={16} /> Locked — Need {RANK_THRESHOLDS[selectedNpc.rank]} Cumulative Pt for Rank {selectedNpc.rank}
+      </button>
+    );
+
+  const renderDossierBody = () => (
+    <>
+      <div
+        className="bnd-challenger-head"
+        style={{ borderColor: selectedNpc.avatarTheme.accent }}
+      >
+        <div
+          className="bnd-challenger-head__emblem"
+          style={{ background: selectedNpc.avatarTheme.primary }}
+        >
+          {selectedNpc.avatarTheme.emblem}
+        </div>
+        <div className="bnd-challenger-head__text">
+          <div className="bnd-challenger-head__title">
+            <h2>{selectedNpc.name}</h2>
+            <span className={`bnd-rank-tag rank-${selectedNpc.rank}`}>
+              Rank {selectedNpc.rank} ({rankMult.toFixed(1)}×)
+            </span>
+          </div>
+          <div className="bnd-challenger-head__meta">
+            {selectedNpc.jpName} • {selectedNpc.title} • {selectedNpc.region}
+          </div>
+          <blockquote className="bnd-challenger-quote">
+            “{selectedNpc.quoteIntro}”
+          </blockquote>
+        </div>
+      </div>
+
+      {/* Match Rules Configurator */}
+      <div className="bnd-rules-config">
+        <div className="bnd-rules-config__head">
+          <div>
+            <div className="bnd-section-label">Match Rules (Select up to 2)</div>
+            {!canCustomizeRules && (
+              <small className="txt-warn">
+                Reach Rank B or collect all of {selectedNpc.name}’s cards to customize rules.
+              </small>
+            )}
+          </div>
+          {canCustomizeRules && (
+            <button
+              type="button"
+              className="bnd-btn bnd-btn--ghost bnd-btn--sm"
+              onClick={() => setSelectedRules([...selectedNpc.defaultRules])}
+            >
+              <RotateCcw size={13} /> Default
+            </button>
+          )}
+        </div>
+
+        <div className="bnd-rules-grid">
+          {MATCH_RULES.map((rule) => {
+            const active = selectedRules.includes(rule.id);
+            const maxedOut = !active && selectedRules.length >= 2;
+            return (
+              <button
+                key={rule.id}
+                type="button"
+                disabled={!canCustomizeRules || maxedOut}
+                className={`bnd-rule-card ${active ? 'is-active' : ''}`}
+                onClick={() => toggleRule(rule.id)}
+              >
+                <div className="bnd-rule-card__top">
+                  <strong>{rule.name}</strong>
+                  <span className="bnd-rule-mult">{rule.multiplier.toFixed(2)}×</span>
+                </div>
+                <p>{rule.description}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="bnd-multiplier-bar">
+          <Sparkles size={16} />
+          <span>
+            Victory Payout: Rank {selectedNpc.rank} (<strong>{rankMult.toFixed(2)}×</strong>) × Rules (<strong>{ruleMult.toFixed(2)}×</strong>) ={' '}
+            <strong className="txt-gold">{combinedMult.toFixed(2)}× Pt / Sq</strong>
+          </span>
+          {!selectedRules.includes('no_keepsies') && !profile.sandboxUnlockAll && (
+            <span className="bnd-keepsies-warn" title="Losing or drawing forfeits 1 random card from your match deck!">
+              <ShieldAlert size={14} /> Keepsies Active
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Opponent Reward Card Pool */}
+      <div className="bnd-npc-rewards">
+        <div className="bnd-section-label">
+          Winnable Cards from {selectedNpc.name} ({selectedNpc.rewardCards.length})
+        </div>
+        <div className="bnd-npc-rewards__grid">
+          {selectedNpc.rewardCards.map((cid) => {
+            const card = getCardById(cid);
+            const owned = profile.sandboxUnlockAll
+              ? Math.max(1, profile.ownedCounts[cid] ?? 0)
+              : profile.ownedCounts[cid] ?? 0;
+            return (
+              <CardView
+                key={cid}
+                card={card}
+                compact
+                ownedCount={owned}
+                isLost={profile.lostCards.includes(cid) && owned === 0}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+
   return (
-    <div className="bnd-tavern">
+    <div className={`bnd-tavern ${isMobile ? 'is-mobile' : ''}`}>
       {/* Top Rank Progression & Active Deck Quick-Bar */}
-      <section className="bnd-tavern__hero">
-        <div className="bnd-rank-progress">
-          <div className="bnd-rank-progress__head">
+      {isMobile ? (
+        <section className="bnd-m-tavern-hero">
+          <div className="bnd-m-rank-row">
             <div className="bnd-rank-progress__title">
-              <Crown size={20} />
+              <Crown size={17} />
               <span>
-                Duelist License: <strong>Rank {playerRank}</strong>
+                License: <strong>Rank {playerRank}</strong>
               </span>
               {profile.sandboxUnlockAll && (
-                <span className="bnd-chip bnd-chip--gold">Sandbox Unlocked</span>
+                <span className="bnd-chip bnd-chip--gold">Sandbox</span>
               )}
             </div>
             <span className="bnd-rank-progress__pts">
-              Cumulative Earned: <strong>{profile.cumulativePoints} Pt</strong>
+              Total: <strong>{profile.cumulativePoints} Pt</strong>
             </span>
           </div>
 
@@ -123,56 +271,98 @@ export const OpponentSelect: React.FC<OpponentSelectProps> = ({
             <div className="bnd-progress-fill" style={{ width: `${progressPct}%` }} />
           </div>
 
-          <div className="bnd-rank-milestones">
-            {RANKS.map((rk) => {
-              const reached = canChallengeRank(playerRank, rk);
-              return (
-                <span key={rk} className={reached ? 'is-reached' : ''}>
-                  Rank {rk}: {RANK_THRESHOLDS[rk]} Pt {reached ? '✓' : ''}
-                </span>
-              );
-            })}
+          <div className="bnd-m-deck-strip">
+            <span className="bnd-m-deck-strip__label">Deck:</span>
+            <div className="bnd-pill-scroll">
+              {profile.decks.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  className={`bnd-pill-btn ${d.id === activeDeck.id ? 'is-on' : ''}`}
+                  onClick={() => {
+                    soundEngine.playSelectCard();
+                    onSelectActiveDeck(d.id);
+                  }}
+                >
+                  {d.name}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </section>
+      ) : (
+        <section className="bnd-tavern__hero">
+          <div className="bnd-rank-progress">
+            <div className="bnd-rank-progress__head">
+              <div className="bnd-rank-progress__title">
+                <Crown size={20} />
+                <span>
+                  Duelist License: <strong>Rank {playerRank}</strong>
+                </span>
+                {profile.sandboxUnlockAll && (
+                  <span className="bnd-chip bnd-chip--gold">Sandbox Unlocked</span>
+                )}
+              </div>
+              <span className="bnd-rank-progress__pts">
+                Cumulative Earned: <strong>{profile.cumulativePoints} Pt</strong>
+              </span>
+            </div>
 
-        <div className="bnd-quick-deck">
-          <div className="bnd-section-label">Equipped Match Deck</div>
-          <div className="bnd-quick-deck__select">
-            {profile.decks.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                className={`bnd-pill-btn ${d.id === activeDeck.id ? 'is-on' : ''}`}
-                onClick={() => {
-                  soundEngine.playSelectCard();
-                  onSelectActiveDeck(d.id);
-                }}
-              >
-                {d.name}
-              </button>
-            ))}
+            <div className="bnd-progress-track">
+              <div className="bnd-progress-fill" style={{ width: `${progressPct}%` }} />
+            </div>
+
+            <div className="bnd-rank-milestones">
+              {RANKS.map((rk) => {
+                const reached = canChallengeRank(playerRank, rk);
+                return (
+                  <span key={rk} className={reached ? 'is-reached' : ''}>
+                    Rank {rk}: {RANK_THRESHOLDS[rk]} Pt {reached ? '✓' : ''}
+                  </span>
+                );
+              })}
+            </div>
           </div>
-          <div className="bnd-quick-deck__mini">
-            {activeDeck.cards.map((cid, idx) => {
-              const c = getCardById(cid);
-              return (
-                <span key={`${idx}_${cid}`} className="bnd-mini-card-tag" title={`${c.code} ${c.name}`}>
-                  #{c.code} {c.name}
-                </span>
-              );
-            })}
+
+          <div className="bnd-quick-deck">
+            <div className="bnd-section-label">Equipped Match Deck</div>
+            <div className="bnd-quick-deck__select">
+              {profile.decks.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  className={`bnd-pill-btn ${d.id === activeDeck.id ? 'is-on' : ''}`}
+                  onClick={() => {
+                    soundEngine.playSelectCard();
+                    onSelectActiveDeck(d.id);
+                  }}
+                >
+                  {d.name}
+                </button>
+              ))}
+            </div>
+            <div className="bnd-quick-deck__mini">
+              {activeDeck.cards.map((cid, idx) => {
+                const c = getCardById(cid);
+                return (
+                  <span key={`${idx}_${cid}`} className="bnd-mini-card-tag" title={`${c.code} ${c.name}`}>
+                    #{c.code} {c.name}
+                  </span>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Rank Filter Pills */}
-      <div className="bnd-filter-pills bnd-tavern__filters">
+      <div className={`bnd-filter-pills bnd-tavern__filters ${isMobile ? 'is-scroll-row' : ''}`}>
         <button
           type="button"
           className={`bnd-pill-btn ${rankFilter === 'All' ? 'is-on' : ''}`}
           onClick={() => setRankFilter('All')}
         >
-          All Duelists ({NPC_OPPONENTS.length})
+          All ({NPC_OPPONENTS.length})
         </button>
         {RANKS.map((rk) => {
           const count = NPC_OPPONENTS.filter((n) => n.rank === rk).length;
@@ -190,7 +380,7 @@ export const OpponentSelect: React.FC<OpponentSelectProps> = ({
         })}
       </div>
 
-      {/* Main Split: Opponent Roster (Left) + Selected Duelist Table Setup (Right) */}
+      {/* Main Split: Opponent Roster + Selected Duelist Dossier (Desktop Aside / Mobile Bottom Sheet) */}
       <div className="bnd-tavern__grid">
         <div className="bnd-roster-list">
           {filteredOpponents.map((npc) => {
@@ -215,6 +405,9 @@ export const OpponentSelect: React.FC<OpponentSelectProps> = ({
                 onClick={() => {
                   soundEngine.playHover();
                   setSelectedNpcId(npc.id);
+                  if (isMobile) {
+                    setShowDossierSheet(true);
+                  }
                 }}
               >
                 <div
@@ -250,151 +443,40 @@ export const OpponentSelect: React.FC<OpponentSelectProps> = ({
                   </div>
                 </div>
 
-                {!unlocked && (
+                {!unlocked ? (
                   <div className="bnd-npc-row__lock" title={`Requires Rank ${npc.rank}`}>
                     <Lock size={16} />
                   </div>
-                )}
+                ) : isMobile ? (
+                  <ChevronRight size={17} className="bnd-npc-row__chevron" />
+                ) : null}
               </button>
             );
           })}
         </div>
 
-        {/* Selected Opponent Dossier & Rule Configurator */}
-        <aside className="bnd-challenger-panel">
-          <div
-            className="bnd-challenger-head"
-            style={{ borderColor: selectedNpc.avatarTheme.accent }}
-          >
-            <div
-              className="bnd-challenger-head__emblem"
-              style={{ background: selectedNpc.avatarTheme.primary }}
-            >
-              {selectedNpc.avatarTheme.emblem}
-            </div>
-            <div className="bnd-challenger-head__text">
-              <div className="bnd-challenger-head__title">
-                <h2>{selectedNpc.name}</h2>
-                <span className={`bnd-rank-tag rank-${selectedNpc.rank}`}>
-                  Rank {selectedNpc.rank} ({rankMult.toFixed(1)}×)
-                </span>
-              </div>
-              <div className="bnd-challenger-head__meta">
-                {selectedNpc.jpName} • {selectedNpc.title} • {selectedNpc.region}
-              </div>
-              <blockquote className="bnd-challenger-quote">
-                “{selectedNpc.quoteIntro}”
-              </blockquote>
-            </div>
-          </div>
-
-          {/* Match Rules Configurator */}
-          <div className="bnd-rules-config">
-            <div className="bnd-rules-config__head">
-              <div>
-                <div className="bnd-section-label">Match Rules (Select up to 2)</div>
-                {!canCustomizeRules && (
-                  <small className="txt-warn">
-                    Reach Rank B or collect all of {selectedNpc.name}’s cards to customize rules.
-                  </small>
-                )}
-              </div>
-              {canCustomizeRules && (
-                <button
-                  type="button"
-                  className="bnd-btn bnd-btn--ghost bnd-btn--sm"
-                  onClick={() => setSelectedRules([...selectedNpc.defaultRules])}
-                >
-                  <RotateCcw size={13} /> Default
-                </button>
-              )}
-            </div>
-
-            <div className="bnd-rules-grid">
-              {MATCH_RULES.map((rule) => {
-                const active = selectedRules.includes(rule.id);
-                const maxedOut = !active && selectedRules.length >= 2;
-                return (
-                  <button
-                    key={rule.id}
-                    type="button"
-                    disabled={!canCustomizeRules || maxedOut}
-                    className={`bnd-rule-card ${active ? 'is-active' : ''}`}
-                    onClick={() => toggleRule(rule.id)}
-                  >
-                    <div className="bnd-rule-card__top">
-                      <strong>{rule.name}</strong>
-                      <span className="bnd-rule-mult">{rule.multiplier.toFixed(2)}×</span>
-                    </div>
-                    <p>{rule.description}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="bnd-multiplier-bar">
-              <Sparkles size={16} />
-              <span>
-                Victory Payout Rate: Rank {selectedNpc.rank} (<strong>{rankMult.toFixed(2)}×</strong>) × Rules (<strong>{ruleMult.toFixed(2)}×</strong>) ={' '}
-                <strong className="txt-gold">{combinedMult.toFixed(2)}× Pt / Square</strong>
-              </span>
-              {!selectedRules.includes('no_keepsies') && !profile.sandboxUnlockAll && (
-                <span className="bnd-keepsies-warn" title="Losing or drawing forfeits 1 random card from your match deck!">
-                  <ShieldAlert size={14} /> Keepsies Active
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Opponent Reward Card Pool */}
-          <div className="bnd-npc-rewards">
-            <div className="bnd-section-label">
-              Winnable Cards from {selectedNpc.name} ({selectedNpc.rewardCards.length})
-            </div>
-            <div className="bnd-npc-rewards__grid">
-              {selectedNpc.rewardCards.map((cid) => {
-                const card = getCardById(cid);
-                const owned = profile.sandboxUnlockAll
-                  ? Math.max(1, profile.ownedCounts[cid] ?? 0)
-                  : profile.ownedCounts[cid] ?? 0;
-                return (
-                  <CardView
-                    key={cid}
-                    card={card}
-                    compact
-                    ownedCount={owned}
-                    isLost={profile.lostCards.includes(cid) && owned === 0}
-                  />
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Launch Match CTA */}
-          <div className="bnd-challenger-cta">
-            {isNpcUnlocked ? (
-              <button
-                type="button"
-                className="bnd-btn bnd-btn--gold bnd-btn--lg bnd-btn--full"
-                onClick={() => {
-                  soundEngine.playSelectCard();
-                  onStartMatch(selectedNpc, selectedRules);
-                }}
-              >
-                <Swords size={18} /> Challenge {selectedNpc.name} (Deck: {activeDeck.name})
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="bnd-btn bnd-btn--ghost bnd-btn--lg bnd-btn--full"
-                disabled
-              >
-                <Lock size={16} /> Locked — Earn {RANK_THRESHOLDS[selectedNpc.rank]} Cumulative Pt for Rank {selectedNpc.rank} (or Enable Sandbox)
-              </button>
-            )}
-          </div>
-        </aside>
+        {/* Desktop Dossier Aside */}
+        {!isMobile && (
+          <aside className="bnd-challenger-panel">
+            {renderDossierBody()}
+            <div className="bnd-challenger-cta">{renderChallengeCta()}</div>
+          </aside>
+        )}
       </div>
+
+      {/* Mobile Challenger Dossier Sheet */}
+      {isMobile && (
+        <MobileSheet
+          open={showDossierSheet}
+          title={selectedNpc.name}
+          subtitle={`${selectedNpc.title} • ${selectedNpc.region}`}
+          onClose={() => setShowDossierSheet(false)}
+          backPriority={15}
+          footer={renderChallengeCta()}
+        >
+          <div className="bnd-challenger-panel is-sheet">{renderDossierBody()}</div>
+        </MobileSheet>
+      )}
     </div>
   );
 };

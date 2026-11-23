@@ -1,10 +1,21 @@
-import type { BndCard } from '../../types/bnd';
+import type { BndCard, MonsterTribe } from '../../types/bnd';
 import { MONSTER_CARDS } from './monsters';
 import { SPECIAL_CARDS } from './specialCards';
 
 export { MONSTER_CARDS } from './monsters';
 export { SPECIAL_CARDS, parseBadgeGrid } from './specialCards';
 export { CARD_IMAGE_FILES, getCardImageUrl } from './cardImages';
+
+export const MONSTER_TRIBES: readonly MonsterTribe[] = [
+  'Humanoid',
+  'Beast',
+  'Insect',
+  'Aquatic',
+  'Plant',
+  'Demon',
+  'Undead',
+  'Spirit',
+];
 
 export const ALL_CARDS: readonly BndCard[] = [...MONSTER_CARDS, ...SPECIAL_CARDS];
 

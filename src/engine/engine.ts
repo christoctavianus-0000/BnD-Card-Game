@@ -567,34 +567,37 @@ function fortifyCell(cell: BoardCell, highlights: MoveHighlight[]): void {
   highlights.push({ row: cell.row, col: cell.col, kind: 'fortified' });
 }
 
+type PoisonApplyOutcome = 'poisoned' | 'fortified' | 'shield_broken' | 'blocked';
+
 function applyPoisonToCell(
   state: MatchState,
   cell: BoardCell,
   highlights: MoveHighlight[],
   freshlyPoisonedKeys?: Set<string>
-): void {
-  if (cell.owner === 'neutral') return;
+): PoisonApplyOutcome {
+  if (cell.owner === 'neutral') return 'blocked';
 
   // 075 Selene Permanent: turns Poison effects into Fortify!
   if (state.permanentCard?.cardId === 75) {
     fortifyCell(cell, highlights);
-    return;
+    return 'fortified';
   }
 
   // 086 Salve-Maker Medal: blocks all Poison effects!
   if (hasActiveMedal(state.board, 86)) {
-    return;
+    return 'blocked';
   }
 
   if (cell.fortified) {
     cell.fortified = false;
     highlights.push({ row: cell.row, col: cell.col, kind: 'shield_broken' });
-    return;
+    return 'shield_broken';
   }
 
   cell.poisonTurns = 3;
   highlights.push({ row: cell.row, col: cell.col, kind: 'poisoned' });
   freshlyPoisonedKeys?.add(`${cell.row},${cell.col}`);
+  return 'poisoned';
 }
 
 function checkDomenicTrigger(state: MatchState): void {
@@ -647,7 +650,8 @@ function resolveEndOfTurn(
   state: MatchState,
   actingSide: PlayerSide,
   returnShieldmaster: boolean,
-  rng: () => number
+  rng: () => number,
+  freshlyPoisonedKeys?: ReadonlySet<string>
 ): void {
   const actorLabel = actingSide === 'player' ? 'Blue' : 'Red';
 
@@ -677,7 +681,7 @@ function resolveEndOfTurn(
   for (let r = 0; r < 5; r++) {
     for (let c = 0; c < 5; c++) {
       const cell = state.board[r][c];
-      if (cell.poisonTurns > 0) {
+      if (cell.poisonTurns > 0 && !freshlyPoisonedKeys?.has(`${r},${c}`)) {
         cell.poisonTurns -= 1;
         if (cell.poisonTurns === 0) {
           cell.owner = 'neutral';
@@ -708,8 +712,28 @@ function resolveEndOfTurn(
         }
         const chosen = pickRandom(occupiedCells, rng);
         if (chosen) {
-          applyPoisonToCell(state, chosen, state.highlights);
-          addLog(state, medal.owner, `Lady Emma poisons square (${chosen.row + 1}, ${chosen.col + 1})!`);
+          const outcome = applyPoisonToCell(state, chosen, state.highlights);
+          if (outcome === 'poisoned') {
+            addLog(state, medal.owner, `Lady Emma poisons square (${chosen.row + 1}, ${chosen.col + 1})!`);
+          } else if (outcome === 'fortified') {
+            addLog(
+              state,
+              medal.owner,
+              `Lady Emma targets (${chosen.row + 1}, ${chosen.col + 1}) — Selene turns Poison into Fortify!`
+            );
+          } else if (outcome === 'shield_broken') {
+            addLog(
+              state,
+              medal.owner,
+              `Lady Emma's Poison shatters the Fortify ward at (${chosen.row + 1}, ${chosen.col + 1})!`
+            );
+          } else {
+            addLog(
+              state,
+              medal.owner,
+              `Lady Emma targets (${chosen.row + 1}, ${chosen.col + 1}), but Salve-Maker blocks Poison!`
+            );
+          }
         }
       }
     }
@@ -1293,6 +1317,7 @@ export function playCard(prevState: MatchState, params: PlayCardParams): MatchSt
 
   // Attach Extended Medal & Execute Instant Placement Effects
   let returnShieldmaster = false;
+  const freshlyPoisonedKeys = new Set<string>();
 
   if (!abilityCancelled && card.category !== 'Monster') {
     const beneficiary: PlayerSide = abilityTargetInverted ? enemy : side;
@@ -1328,7 +1353,12 @@ export function playCard(prevState: MatchState, params: PlayCardParams): MatchSt
           for (const dc of [-1, 1]) {
             const nc = targetCol + dc;
             if (nc >= 0 && nc < 5 && state.board[targetRow][nc].owner !== 'neutral') {
-              applyPoisonToCell(state, state.board[targetRow][nc], state.highlights);
+              applyPoisonToCell(
+                state,
+                state.board[targetRow][nc],
+                state.highlights,
+                freshlyPoisonedKeys
+              );
             }
           }
         }
@@ -1340,7 +1370,7 @@ export function playCard(prevState: MatchState, params: PlayCardParams): MatchSt
             const cell = state.board[r][c];
             if (cell.owner === targetEnemy && cell.fortified) {
               cell.fortified = false;
-              applyPoisonToCell(state, cell, state.highlights);
+              applyPoisonToCell(state, cell, state.highlights, freshlyPoisonedKeys);
             }
           }
         }
@@ -1549,7 +1579,7 @@ export function playCard(prevState: MatchState, params: PlayCardParams): MatchSt
     }
   }
 
-  resolveEndOfTurn(state, side, returnShieldmaster, rng);
+  resolveEndOfTurn(state, side, returnShieldmaster, rng, freshlyPoisonedKeys);
   return state;
 }
 
