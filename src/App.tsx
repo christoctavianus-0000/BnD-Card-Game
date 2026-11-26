@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
+  ArrowLeft,
   BookOpen,
   Coins,
   Layers,
@@ -29,6 +31,21 @@ import {
 import type { MatchRuleId, NpcOpponent } from './types/bnd';
 
 type NavTab = 'tavern' | 'deckbuilder' | 'binder';
+
+const LIVE_ARCADE_HUB_URL = 'https://christoctavianus-0000.github.io/Mini-Game/';
+
+function getArcadeHubUrl(): string {
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === '[::1]') &&
+    /\/dist(\/|$)/i.test(window.location.pathname)
+  ) {
+    return '../../index.html';
+  }
+  return LIVE_ARCADE_HUB_URL;
+}
 
 export const App: React.FC = () => {
   const { isMobile, isMobilePortrait, isMobileLandscape } = useViewportMode();
@@ -139,6 +156,8 @@ export const App: React.FC = () => {
 
   const showHeader = !isMobile || !activeChallenge;
   const showBottomNav = isMobile && !activeChallenge;
+  const arcadeHubUrl = useMemo(() => getArcadeHubUrl(), []);
+  const showArcadeHubLink = !activeChallenge && !Capacitor.isNativePlatform();
 
   return (
     <div className={appClasses}>
@@ -146,6 +165,29 @@ export const App: React.FC = () => {
       {showHeader && (
         <header className={`bnd-header ${isMobile ? 'is-mobile-bar' : ''}`}>
           <div className="bnd-brand">
+            {showArcadeHubLink &&
+              (!isMobile ? (
+                <a
+                  href={arcadeHubUrl}
+                  className="bnd-hub-link"
+                  onClick={() => soundEngine.playHover()}
+                  title="Back to Mini Game Arcade Hub"
+                  aria-label="Back to Mini Game Arcade Hub"
+                >
+                  <ArrowLeft size={14} aria-hidden="true" />
+                  <span>Arcade</span>
+                </a>
+              ) : (
+                <a
+                  href={arcadeHubUrl}
+                  className="bnd-icon-btn bnd-hub-link--mobile"
+                  onClick={() => soundEngine.playHover()}
+                  title="Back to Mini Game Arcade Hub"
+                  aria-label="Back to Mini Game Arcade Hub"
+                >
+                  <ArrowLeft size={16} aria-hidden="true" />
+                </a>
+              ))}
             <div className="bnd-brand__crest">✦</div>
             <div>
               <h1 className="bnd-brand__title">

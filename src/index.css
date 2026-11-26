@@ -139,6 +139,43 @@ a:focus-visible,
   gap: 12px;
 }
 
+.bnd-hub-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--gold-bright);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: transform 120ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out), background-color 150ms var(--ease-out);
+}
+
+.bnd-hub-link:active {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .bnd-hub-link:hover {
+    color: #fff;
+    border-color: var(--border-gold);
+    background: rgba(212, 168, 83, 0.16);
+  }
+}
+
+.bnd-hub-link--mobile {
+  text-decoration: none;
+  color: var(--gold-bright);
+  flex-shrink: 0;
+}
+
 .bnd-brand__crest {
   width: 36px;
   height: 36px;
